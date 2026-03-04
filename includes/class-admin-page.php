@@ -159,7 +159,7 @@ class ACF_DB_Sync_Admin_Page {
                 $del_cat_id  = absint( $_POST['orphan_cat_id'] ?? 0 );
                 $raw_keys    = isset( $_POST['orphan_keys'] ) && is_array( $_POST['orphan_keys'] )
                     ? $_POST['orphan_keys'] : [];
-                $keys        = array_map( 'sanitize_key', $raw_keys );
+                $keys        = array_map( 'sanitize_text_field', $raw_keys );
 
                 if ( $del_cat_id && ! empty( $keys ) ) {
                     $affected       = $syncer->delete_orphans( $del_cat_id, $keys );

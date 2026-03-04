@@ -123,7 +123,7 @@ class ACF_DB_Syncer {
         $affected = 0;
         foreach ( $posts as $post_id ) {
             foreach ( $keys as $key ) {
-                $key = sanitize_key( $key );
+                $key = sanitize_text_field( $key );
                 if ( metadata_exists( 'post', (int) $post_id, $key ) ) {
                     delete_post_meta( (int) $post_id, $key );
                     delete_post_meta( (int) $post_id, '_' . $key );
