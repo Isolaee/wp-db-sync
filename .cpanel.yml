@@ -4,6 +4,6 @@ deployment:
     - export DEPLOYPATH=/home/growthrocket2/public_html/wp-content/plugins/wp-db-sync
     - test -d "$(dirname $DEPLOYPATH)" || exit 1
     - mkdir -p $DEPLOYPATH
-    - /bin/cp -R wp-content/plugins/wp-db-sync/* $DEPLOYPATH/
+    - /bin/cp -R * $DEPLOYPATH/
     - find $DEPLOYPATH -type f -exec chmod 644 {} \;
     - find $DEPLOYPATH -type d -exec chmod 755 {} \;
