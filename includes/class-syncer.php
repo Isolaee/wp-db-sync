@@ -45,10 +45,12 @@ class ACF_DB_Syncer {
             $leaf_fields     = $this->collect_leaf_fields( $fields );
             $known_meta_keys = array_column( $leaf_fields, 'name' );
 
-            // Get all published posts in this category, across all post types.
+            // Get all non-trashed posts in this category, across all post types.
+            // Use all registered statuses so frontend-submitted posts with
+            // 'pending' / 'draft' / custom statuses are also synced.
             $posts = get_posts( [
                 'post_type'      => 'any',
-                'post_status'    => 'publish',
+                'post_status'    => $this->all_active_statuses(),
                 'posts_per_page' => -1,
                 'fields'         => 'ids',
                 'tax_query'      => [ [
@@ -110,7 +112,7 @@ class ACF_DB_Syncer {
     public function delete_orphans( int $cat_id, array $keys ): int {
         $posts = get_posts( [
             'post_type'      => 'any',
-            'post_status'    => 'publish',
+            'post_status'    => $this->all_active_statuses(),
             'posts_per_page' => -1,
             'fields'         => 'ids',
             'tax_query'      => [ [
@@ -133,6 +135,20 @@ class ACF_DB_Syncer {
         }
 
         return $affected;
+    }
+
+    /**
+     * Returns all non-trashed post statuses registered in WordPress,
+     * including any added by plugins (e.g. custom listing statuses).
+     *
+     * @return string[]
+     */
+    private function all_active_statuses(): array {
+        $all = array_keys( $GLOBALS['wp_post_statuses'] ?? [] );
+        if ( empty( $all ) ) {
+            return [ 'publish', 'pending', 'draft', 'private' ];
+        }
+        return array_values( array_diff( $all, [ 'trash', 'auto-draft' ] ) );
     }
 
     /**
