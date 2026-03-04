@@ -132,8 +132,9 @@ class ACF_DB_Sync_Admin_Page {
     // -------------------------------------------------------------------------
 
     private static function render_run(): void {
-        $error   = '';
-        $results = null;
+        $error          = '';
+        $results        = null;
+        $delete_message = '';
 
         $mappings = (array) get_option( self::OPTION_KEY, [] );
 
@@ -149,19 +150,40 @@ class ACF_DB_Sync_Admin_Page {
             }
         }
 
+        // Handle orphan deletion.
+        if ( isset( $_POST['acf_db_sync_delete_nonce'] ) ) {
+            if ( ! check_admin_referer( 'acf_db_sync_delete_orphans', 'acf_db_sync_delete_nonce' ) ) {
+                $error = 'Security check failed.';
+            } else {
+                $syncer      = new ACF_DB_Syncer();
+                $del_cat_id  = absint( $_POST['orphan_cat_id'] ?? 0 );
+                $raw_keys    = isset( $_POST['orphan_keys'] ) && is_array( $_POST['orphan_keys'] )
+                    ? $_POST['orphan_keys'] : [];
+                $keys        = array_map( 'sanitize_key', $raw_keys );
+
+                if ( $del_cat_id && ! empty( $keys ) ) {
+                    $affected       = $syncer->delete_orphans( $del_cat_id, $keys );
+                    $delete_message = sprintf(
+                        'Deleted %d orphan meta row(s) across posts in this category.',
+                        $affected
+                    );
+                }
+            }
+        }
+
+        // Handle sync run.
         if ( isset( $_POST['acf_db_sync_nonce'] ) ) {
             if ( ! check_admin_referer( 'acf_db_sync_run', 'acf_db_sync_nonce' ) ) {
                 $error = 'Security check failed.';
             } elseif ( empty( $mapped_categories ) ) {
                 $error = 'No category→field group mappings configured. Go to the Settings tab first.';
             } else {
-                $raw_cats      = isset( $_POST['categories'] ) && is_array( $_POST['categories'] ) ? $_POST['categories'] : [];
-                $selected_ids  = array_map( 'absint', $raw_cats );
+                $raw_cats     = isset( $_POST['categories'] ) && is_array( $_POST['categories'] ) ? $_POST['categories'] : [];
+                $selected_ids = array_map( 'absint', $raw_cats );
 
                 if ( empty( $selected_ids ) ) {
                     $error = 'Please select at least one category.';
                 } else {
-                    // Build pairs: [ ['cat_id' => N, 'group_key' => 'group_xxx', 'cat_slug' => '...'], ... ]
                     $pairs = [];
                     foreach ( $selected_ids as $cat_id ) {
                         if ( isset( $mappings[ $cat_id ] ) && $mappings[ $cat_id ] ) {
@@ -169,7 +191,6 @@ class ACF_DB_Sync_Admin_Page {
                             if ( $cat && ! is_wp_error( $cat ) ) {
                                 $pairs[] = [
                                     'cat_id'    => $cat_id,
-                                    'cat_slug'  => $cat->slug,
                                     'cat_name'  => $cat->name,
                                     'group_key' => $mappings[ $cat_id ],
                                 ];
@@ -190,17 +211,25 @@ class ACF_DB_Sync_Admin_Page {
         if ( $error ) {
             echo '<div class="notice notice-error"><p>' . esc_html( $error ) . '</p></div>';
         }
+        if ( $delete_message ) {
+            echo '<div class="notice notice-success"><p>' . esc_html( $delete_message ) . '</p></div>';
+        }
 
-        if ( $results !== null ) : ?>
+        // Sync results.
+        if ( $results !== null ) :
+            // Collect rows that have orphans for the delete form below.
+            $orphan_rows = array_filter( $results, fn( $r ) => ! empty( $r['orphan_keys'] ) );
+            ?>
             <div class="notice notice-success">
                 <p><strong>Sync complete.</strong></p>
-                <table class="widefat" style="max-width:560px;margin-top:8px;">
+                <table class="widefat" style="max-width:620px;margin-top:8px;">
                     <thead>
                         <tr>
                             <th>Category</th>
                             <th>Field group</th>
                             <th>Posts processed</th>
                             <th>Meta rows added</th>
+                            <th>Orphan fields</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -210,11 +239,56 @@ class ACF_DB_Sync_Admin_Page {
                                 <td><?php echo esc_html( $row['group_title'] ); ?></td>
                                 <td><?php echo (int) $row['posts']; ?></td>
                                 <td><?php echo (int) $row['added']; ?></td>
+                                <td>
+                                    <?php if ( ! empty( $row['orphan_keys'] ) ) : ?>
+                                        <span style="color:#b32d2e;font-weight:600;">
+                                            <?php echo count( $row['orphan_keys'] ); ?> found
+                                        </span>
+                                    <?php else : ?>
+                                        <span style="color:#2e7d32;">None</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
+
+            <?php if ( ! empty( $orphan_rows ) ) :
+                // Look up cat_id for each orphan row from the pairs we built.
+                // Re-derive cat_id by matching cat_name back to mapped_categories.
+                $cat_id_by_name = [];
+                foreach ( $mapped_categories as $cid => $cobj ) {
+                    $cat_id_by_name[ $cobj->name ] = $cid;
+                }
+                ?>
+                <div class="notice notice-warning" style="padding-bottom:12px;">
+                    <p><strong>Orphan ACF fields detected.</strong>
+                    These meta keys exist on posts but are not part of the current field group.
+                    Review them below and delete if they are no longer needed.</p>
+
+                    <?php foreach ( $orphan_rows as $row ) :
+                        $cat_id = $cat_id_by_name[ $row['cat_name'] ] ?? 0;
+                        if ( ! $cat_id ) continue;
+                        ?>
+                        <h4 style="margin:16px 0 6px;"><?php echo esc_html( $row['cat_name'] ); ?> — <?php echo esc_html( $row['group_title'] ); ?></h4>
+                        <form method="post" style="margin-bottom:16px;">
+                            <?php wp_nonce_field( 'acf_db_sync_delete_orphans', 'acf_db_sync_delete_nonce' ); ?>
+                            <input type="hidden" name="orphan_cat_id" value="<?php echo (int) $cat_id; ?>">
+                            <fieldset style="margin-bottom:8px;">
+                                <?php foreach ( $row['orphan_keys'] as $key ) : ?>
+                                    <label style="display:block;margin-bottom:4px;">
+                                        <input type="checkbox" name="orphan_keys[]" value="<?php echo esc_attr( $key ); ?>" checked>
+                                        <code><?php echo esc_html( $key ); ?></code>
+                                    </label>
+                                <?php endforeach; ?>
+                            </fieldset>
+                            <?php submit_button( 'Delete selected orphans', 'delete', 'submit', false ); ?>
+                        </form>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
         <?php endif;
 
         if ( empty( $mapped_categories ) ) {
