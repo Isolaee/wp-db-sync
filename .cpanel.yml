@@ -1,9 +1,9 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/growthrocket2/public_html/wp-content/plugins/pitchdeck
+    - export DEPLOYPATH=/home/growthrocket2/public_html/wp-content/plugins/wp-db-sync
     - test -d "$(dirname $DEPLOYPATH)" || exit 1
     - mkdir -p $DEPLOYPATH
-    - /bin/cp -R wp-content/plugins/pitchdeck/* $DEPLOYPATH/
+    - /bin/cp -R wp-content/plugins/wp-db-sync/* $DEPLOYPATH/
     - find $DEPLOYPATH -type f -exec chmod 644 {} \;
     - find $DEPLOYPATH -type d -exec chmod 755 {} \;
